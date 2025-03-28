@@ -20,6 +20,8 @@ export async function comparePasswords(
 type SessionData = {
   user: { id: number };
   expires: string;
+  hasPendingInvitations?: boolean;
+  customData?: Record<string, any>;
 };
 
 export async function signToken(payload: SessionData) {
@@ -43,12 +45,23 @@ export async function getSession() {
   return await verifyToken(session);
 }
 
-export async function setSession(user: NewUser) {
+export async function setSession(
+  user: NewUser, 
+  customData?: { hasPendingInvitations?: boolean; [key: string]: any }
+) {
   const expiresInOneDay = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const session: SessionData = {
     user: { id: user.id! },
     expires: expiresInOneDay.toISOString(),
   };
+  
+  if (customData) {
+    if (customData.hasPendingInvitations) {
+      session.hasPendingInvitations = true;
+    }
+    session.customData = customData;
+  }
+  
   const encryptedSession = await signToken(session);
   (await cookies()).set('session', encryptedSession, {
     expires: expiresInOneDay,

@@ -8,13 +8,33 @@ import { useActionState } from 'react';
 import { TeamDataWithMembers, User } from '@/lib/db/schema';
 import { removeTeamMember } from '@/app/(login)/actions';
 import { InviteTeamMember } from './invite-team';
+import { SubscriptionUsage } from './subscription/usage';
+import { use } from 'react';
+import { useUser } from '@/lib/auth';
+
+type Team = {
+  teamId: number;
+  teamName: string;
+  role: string;
+};
 
 type ActionState = {
   error?: string;
   success?: string;
 };
 
-export function Settings({ teamData }: { teamData: TeamDataWithMembers }) {
+export function Settings({ 
+  teamData
+}: { 
+  teamData: TeamDataWithMembers;
+}) {
+  const { userPromise } = useUser();
+  const user = use(userPromise);
+  
+  // Check if current user is team owner
+  const currentUserMembership = teamData.teamMembers.find(member => member.userId === user?.id);
+  const isTeamOwner = currentUserMembership?.role === 'owner';
+  
   const [removeState, removeAction, isRemovePending] = useActionState<
     ActionState,
     FormData
@@ -26,7 +46,15 @@ export function Settings({ teamData }: { teamData: TeamDataWithMembers }) {
 
   return (
     <section className="flex-1 p-4 lg:p-8">
-      <h1 className="text-lg lg:text-2xl font-medium mb-6">Team Settings</h1>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg lg:text-2xl font-medium">Team Settings</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Role: <span className="capitalize text-orange-500">{currentUserMembership?.role}</span> in <span className="text-orange-500">{teamData.name}</span>
+          </p>
+        </div>
+      </div>
+
       <Card className="mb-8">
         <CardHeader>
           <CardTitle>Team Subscription</CardTitle>
@@ -46,15 +74,22 @@ export function Settings({ teamData }: { teamData: TeamDataWithMembers }) {
                       : 'No active subscription'}
                 </p>
               </div>
-              <form action={customerPortalAction}>
-                <Button type="submit" variant="outline">
-                  Manage Subscription
-                </Button>
-              </form>
+              {isTeamOwner && (
+                <form action={customerPortalAction}>
+                  <Button type="submit" variant="outline">
+                    Manage Subscription
+                  </Button>
+                </form>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
+      
+      <div className="mb-8">
+        <SubscriptionUsage teamData={teamData} />
+      </div>
+      
       <Card className="mb-8">
         <CardHeader>
           <CardTitle>Team Members</CardTitle>
@@ -85,7 +120,7 @@ export function Settings({ teamData }: { teamData: TeamDataWithMembers }) {
                     </p>
                   </div>
                 </div>
-                {index > 1 ? (
+                {index > 1 && isTeamOwner ? (
                   <form action={removeAction}>
                     <input type="hidden" name="memberId" value={member.id} />
                     <Button
@@ -106,7 +141,7 @@ export function Settings({ teamData }: { teamData: TeamDataWithMembers }) {
           )}
         </CardContent>
       </Card>
-      <InviteTeamMember />
+      <InviteTeamMember teamData={teamData} />
     </section>
   );
 }

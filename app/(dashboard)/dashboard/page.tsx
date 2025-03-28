@@ -14,6 +14,8 @@ export default async function SettingsPage() {
   if (!teamData) {
     throw new Error('Team not found');
   }
+  
+  // No need to get all teams anymore, as we don't need them in the Settings component
 
   return <Settings teamData={teamData} />;
 }

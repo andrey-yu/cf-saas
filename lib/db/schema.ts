@@ -5,6 +5,7 @@ import {
   text,
   timestamp,
   integer,
+  boolean,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -29,6 +30,9 @@ export const teams = pgTable('teams', {
   stripeProductId: text('stripe_product_id'),
   planName: varchar('plan_name', { length: 50 }),
   subscriptionStatus: varchar('subscription_status', { length: 20 }),
+  seatsBilled: integer('seats_billed'),
+  nextBillingDate: timestamp('next_billing_date'),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end'),
 });
 
 export const teamMembers = pgTable('team_members', {
@@ -139,4 +143,5 @@ export enum ActivityType {
   REMOVE_TEAM_MEMBER = 'REMOVE_TEAM_MEMBER',
   INVITE_TEAM_MEMBER = 'INVITE_TEAM_MEMBER',
   ACCEPT_INVITATION = 'ACCEPT_INVITATION',
+  DECLINE_INVITATION = 'DECLINE_INVITATION',
 }

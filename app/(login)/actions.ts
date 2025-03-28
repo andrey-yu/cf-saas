@@ -19,8 +19,8 @@ import {
 import { comparePasswords, hashPassword, setSession } from '@/lib/auth/session';
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
-import { createCheckoutSession } from '@/lib/payments/stripe';
-import { getUser, getUserWithTeam } from '@/lib/db/queries';
+import { createCheckoutSession, updateSubscriptionQuantity } from '@/lib/payments/stripe';
+import { getUser, getUserWithTeam, getPendingInvitationsByEmail } from '@/lib/db/queries';
 import {
   validatedAction,
   validatedActionWithUser,
@@ -90,6 +90,9 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     };
   }
 
+  // Check for pending invitations for this email
+  const pendingInvitations = await getPendingInvitationsByEmail(email);
+  
   await Promise.all([
     setSession(foundUser),
     logActivity(foundTeam?.id, foundUser.id, ActivityType.SIGN_IN),
@@ -102,6 +105,13 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     const priceId = formData.get('priceId') as string;
     console.log('QQQ10 signIn creating checkout with priceId:', priceId);
     return createCheckoutSession({ team: foundTeam, priceId });
+  }
+
+  // If there are pending invitations, set a cookie and redirect to the invitations page
+  if (pendingInvitations.length > 0) {
+    // Store invitation data in session instead of cookies
+    await setSession(foundUser, { hasPendingInvitations: true });
+    redirect('/invitations');
   }
 
   redirect('/dashboard');
@@ -170,25 +180,13 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
       )
       .limit(1);
 
-    if (invitation) {
-      teamId = invitation.teamId;
-      userRole = invitation.role;
-
-      await db
-        .update(invitations)
-        .set({ status: 'accepted' })
-        .where(eq(invitations.id, invitation.id));
-
-      await logActivity(teamId, createdUser.id, ActivityType.ACCEPT_INVITATION);
-
-      [createdTeam] = await db
-        .select()
-        .from(teams)
-        .where(eq(teams.id, teamId))
-        .limit(1);
-    } else {
+    if (!invitation) {
       return { error: 'Invalid or expired invitation.', email, password };
     }
+    
+    // No longer automatically accepting the invitation
+    // Instead, the user will be redirected to the invitations page 
+    // where they can choose to accept or decline
   } else {
     // Create a new team if there's no invitation
     const newTeam: NewTeam = {
@@ -208,20 +206,20 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     teamId = createdTeam.id;
     userRole = 'owner';
 
-    await logActivity(teamId, createdUser.id, ActivityType.CREATE_TEAM);
+    // Create the team membership for the user
+    const newTeamMember: NewTeamMember = {
+      userId: createdUser.id,
+      teamId: teamId,
+      role: userRole,
+    };
+
+    await Promise.all([
+      db.insert(teamMembers).values(newTeamMember),
+      logActivity(teamId, createdUser.id, ActivityType.SIGN_UP),
+    ]);
   }
 
-  const newTeamMember: NewTeamMember = {
-    userId: createdUser.id,
-    teamId: teamId,
-    role: userRole,
-  };
-
-  await Promise.all([
-    db.insert(teamMembers).values(newTeamMember),
-    logActivity(teamId, createdUser.id, ActivityType.SIGN_UP),
-    setSession(createdUser),
-  ]);
+  await setSession(createdUser);
 
   const redirectTo = formData.get('redirect') as string | null;
   console.log('QQQ13 signUp redirectTo:', redirectTo);
@@ -230,6 +228,16 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     const priceId = formData.get('priceId') as string;
     console.log('QQQ14 signUp creating checkout with priceId:', priceId);
     return createCheckoutSession({ team: createdTeam, priceId });
+  }
+
+  // Check for pending invitations by email
+  const pendingInvitations = await getPendingInvitationsByEmail(email);
+  
+  await setSession(createdUser, { hasPendingInvitations: pendingInvitations.length > 0 });
+
+  // If there are pending invitations, redirect to the invitations page
+  if (pendingInvitations.length > 0) {
+    redirect('/invitations');
   }
 
   redirect('/dashboard');
@@ -363,26 +371,64 @@ export const removeTeamMember = validatedActionWithUser(
   removeTeamMemberSchema,
   async (data, _, user) => {
     const { memberId } = data;
+
+    // Get the current user's team information
     const userWithTeam = await getUserWithTeam(user.id);
 
     if (!userWithTeam?.teamId) {
       return { error: 'User is not part of a team' };
     }
 
-    await db
-      .delete(teamMembers)
+    // Check if the user is an owner of this specific team
+    const teamMember = await db
+      .select()
+      .from(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.userId, user.id),
+          eq(teamMembers.teamId, userWithTeam.teamId)
+        )
+      )
+      .limit(1);
+
+    if (teamMember.length === 0 || teamMember[0].role !== 'owner') {
+      return { error: 'Only team owners can remove team members' };
+    }
+
+    // Check if the member to remove is part of the same team
+    const memberToRemove = await db
+      .select()
+      .from(teamMembers)
       .where(
         and(
           eq(teamMembers.id, memberId),
           eq(teamMembers.teamId, userWithTeam.teamId),
         ),
-      );
+      )
+      .limit(1);
+
+    if (memberToRemove.length === 0) {
+      return { error: 'Team member not found' };
+    }
+
+    // Prevent removing yourself
+    if (memberToRemove[0].userId === user.id) {
+      return { error: 'You cannot remove yourself from the team' };
+    }
+
+    // Remove the member
+    await db
+      .delete(teamMembers)
+      .where(eq(teamMembers.id, memberId));
 
     await logActivity(
       userWithTeam.teamId,
       user.id,
       ActivityType.REMOVE_TEAM_MEMBER,
     );
+    
+    // Update subscription quantity after removing a team member
+    await updateSubscriptionQuantity(userWithTeam.teamId);
 
     return { success: 'Team member removed successfully' };
   },
@@ -401,6 +447,22 @@ export const inviteTeamMember = validatedActionWithUser(
 
     if (!userWithTeam?.teamId) {
       return { error: 'User is not part of a team' };
+    }
+
+    // Check if the user is an owner of this specific team
+    const teamMember = await db
+      .select()
+      .from(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.userId, user.id),
+          eq(teamMembers.teamId, userWithTeam.teamId)
+        )
+      )
+      .limit(1);
+
+    if (teamMember.length === 0 || teamMember[0].role !== 'owner') {
+      return { error: 'Only team owners can invite new members' };
     }
 
     const existingMember = await db
@@ -456,4 +518,36 @@ export const inviteTeamMember = validatedActionWithUser(
 
     return { success: 'Invitation sent successfully' };
   },
+);
+
+const switchTeamSchema = z.object({
+  teamId: z.coerce.number(),
+});
+
+export const switchTeam = validatedActionWithUser(
+  switchTeamSchema,
+  async (data, _, user) => {
+    const { teamId } = data;
+    
+    // Verify that the user is a member of this team
+    const teamMembership = await db
+      .select()
+      .from(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.userId, user.id),
+          eq(teamMembers.teamId, teamId)
+        )
+      )
+      .limit(1);
+    
+    if (teamMembership.length === 0) {
+      return { error: 'You are not a member of this team' };
+    }
+    
+    // Set the current team in the session
+    await setSession(user, { currentTeamId: teamId });
+    
+    return { success: 'Team switched successfully' };
+  }
 );

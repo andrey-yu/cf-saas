@@ -74,8 +74,11 @@ function PricingCard({
       <p className="text-4xl font-medium text-gray-900 mb-6">
         ${price / 100}{' '}
         <span className="text-xl font-normal text-gray-600">
-          per user / {interval}
+          per seat / {interval}
         </span>
+      </p>
+      <p className="text-sm text-gray-600 mb-4">
+        Charged based on your total team size
       </p>
       <ul className="space-y-4 mb-8">
         {features.map((feature, index) => (

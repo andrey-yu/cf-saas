@@ -12,31 +12,33 @@ async function createStripeProducts() {
 
   const baseProduct = await stripe.products.create({
     name: 'Base',
-    description: 'Base subscription plan',
+    description: 'Base subscription plan with per-seat pricing',
   });
 
   await stripe.prices.create({
     product: baseProduct.id,
-    unit_amount: 800, // $8 in cents
+    unit_amount: 800, // $8 per seat in cents
     currency: 'usd',
     recurring: {
       interval: 'month',
       trial_period_days: 7,
+      usage_type: 'licensed', // For per-seat pricing
     },
   });
 
   const plusProduct = await stripe.products.create({
     name: 'Plus',
-    description: 'Plus subscription plan',
+    description: 'Plus subscription plan with per-seat pricing',
   });
 
   await stripe.prices.create({
     product: plusProduct.id,
-    unit_amount: 1200, // $12 in cents
+    unit_amount: 1200, // $12 per seat in cents
     currency: 'usd',
     recurring: {
       interval: 'month',
       trial_period_days: 7,
+      usage_type: 'licensed', // For per-seat pricing
     },
   });
 

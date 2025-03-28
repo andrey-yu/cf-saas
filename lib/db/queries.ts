@@ -1,8 +1,9 @@
-import { desc, and, eq, isNull } from 'drizzle-orm';
+import { desc, and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from './drizzle';
-import { activityLogs, teamMembers, teams, users } from './schema';
+import { activityLogs, teamMembers, teams, users, invitations } from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
+import { getSession } from '@/lib/auth/session';
 
 export async function getUser() {
   const sessionCookie = (await cookies()).get('session');
@@ -53,6 +54,7 @@ export async function updateTeamSubscription(
     stripeProductId: string | null;
     planName: string | null;
     subscriptionStatus: string;
+    cancelAtPeriodEnd?: boolean;
   }
 ) {
   await db
@@ -100,6 +102,42 @@ export async function getActivityLogs() {
 }
 
 export async function getTeamForUser(userId: number) {
+  const session = await getSession();
+  const currentTeamId = session?.customData?.currentTeamId;
+
+  // If there's a current team ID in the session, fetch that specific team
+  if (currentTeamId) {
+    // Verify the user is a member of this team
+    const teamMember = await db.query.teamMembers.findFirst({
+      where: and(
+        eq(teamMembers.userId, userId),
+        eq(teamMembers.teamId, currentTeamId)
+      ),
+      with: {
+        team: {
+          with: {
+            teamMembers: {
+              with: {
+                user: {
+                  columns: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (teamMember?.team) {
+      return teamMember.team;
+    }
+  }
+
+  // Fall back to the first team if no current team is set
   const result = await db.query.users.findFirst({
     where: eq(users.id, userId),
     with: {
@@ -126,4 +164,62 @@ export async function getTeamForUser(userId: number) {
   });
 
   return result?.teamMembers[0]?.team || null;
+}
+
+export async function getTeamMemberCount(teamId: number) {
+  const result = await db
+    .select({ count: sql`count(*)` })
+    .from(teamMembers)
+    .where(eq(teamMembers.teamId, teamId));
+  
+  return Number(result[0].count);
+}
+
+export async function updateTeamSeatsAndBilling(
+  teamId: number, 
+  data: { 
+    seatsBilled?: number;
+    nextBillingDate?: Date;
+  }
+) {
+  await db
+    .update(teams)
+    .set({
+      ...data,
+      updatedAt: new Date(),
+    })
+    .where(eq(teams.id, teamId));
+}
+
+export async function getPendingInvitationsByEmail(email: string) {
+  return db
+    .select({
+      invitation: invitations,
+      team: teams,
+      inviter: users,
+    })
+    .from(invitations)
+    .leftJoin(teams, eq(invitations.teamId, teams.id))
+    .leftJoin(users, eq(invitations.invitedBy, users.id))
+    .where(
+      and(
+        eq(invitations.email, email),
+        eq(invitations.status, 'pending'),
+      ),
+    );
+}
+
+export async function getAllTeamsForUser(userId: number) {
+  const result = await db.query.teamMembers.findMany({
+    where: eq(teamMembers.userId, userId),
+    with: {
+      team: true
+    },
+  });
+
+  return result.map(teamMember => ({
+    teamId: teamMember.team.id,
+    teamName: teamMember.team.name,
+    role: teamMember.role
+  }));
 }
