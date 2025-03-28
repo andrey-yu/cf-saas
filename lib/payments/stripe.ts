@@ -19,8 +19,10 @@ export async function createCheckoutSession({
   priceId: string;
 }) {
   const user = await getUser();
+  console.log('QQQ2 redirect', redirect);
 
   if (!team || !user) {
+    console.log('QQQ1 redirect', redirect);
     redirect(`/sign-up?redirect=checkout&priceId=${priceId}`);
   }
 

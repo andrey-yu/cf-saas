@@ -52,6 +52,10 @@ const signInSchema = z.object({
 export const signIn = validatedAction(signInSchema, async (data, formData) => {
   const { email, password } = data;
 
+  // Log formData for debugging
+  console.log('QQQ7 signIn formData redirect:', formData.get('redirect'));
+  console.log('QQQ8 signIn formData priceId:', formData.get('priceId'));
+
   const userWithTeam = await db
     .select({
       user: users,
@@ -92,8 +96,11 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
   ]);
 
   const redirectTo = formData.get('redirect') as string | null;
+  console.log('QQQ9 signIn redirectTo:', redirectTo);
+  
   if (redirectTo === 'checkout') {
     const priceId = formData.get('priceId') as string;
+    console.log('QQQ10 signIn creating checkout with priceId:', priceId);
     return createCheckoutSession({ team: foundTeam, priceId });
   }
 
@@ -108,6 +115,10 @@ const signUpSchema = z.object({
 
 export const signUp = validatedAction(signUpSchema, async (data, formData) => {
   const { email, password, inviteId } = data;
+
+  // Log formData for debugging
+  console.log('QQQ11 signUp formData redirect:', formData.get('redirect'));
+  console.log('QQQ12 signUp formData priceId:', formData.get('priceId'));
 
   const existingUser = await db
     .select()
@@ -213,8 +224,11 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
   ]);
 
   const redirectTo = formData.get('redirect') as string | null;
+  console.log('QQQ13 signUp redirectTo:', redirectTo);
+  
   if (redirectTo === 'checkout') {
     const priceId = formData.get('priceId') as string;
+    console.log('QQQ14 signUp creating checkout with priceId:', priceId);
     return createCheckoutSession({ team: createdTeam, priceId });
   }
 

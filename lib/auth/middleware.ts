@@ -62,7 +62,35 @@ export function withTeam<T>(action: ActionWithTeamFunction<T>) {
   return async (formData: FormData): Promise<T> => {
     const user = await getUser();
     if (!user) {
-      redirect('/sign-in');
+      console.log('QQQ4 user not found');
+      
+      // Determine the appropriate redirect based on form data
+      let redirectURL = '/sign-in';
+      
+      // Build query parameters
+      const params = new URLSearchParams();
+      
+      // Check if this is a checkout action by looking for priceId
+      const priceId = formData.get('priceId');
+      if (priceId) {
+        console.log('QQQ5 priceId from formData:', priceId);
+        params.set('redirect', 'checkout');
+        params.set('priceId', priceId.toString());
+      }
+      
+      // Check for and preserve other important parameters
+      const inviteId = formData.get('inviteId');
+      if (inviteId) {
+        params.set('inviteId', inviteId.toString());
+      }
+      
+      // Only append params if we have any
+      if (params.toString()) {
+        redirectURL += `?${params.toString()}`;
+      }
+      
+      console.log('QQQ6 redirecting to:', redirectURL);
+      redirect(redirectURL);
     }
 
     const team = await getTeamForUser(user.id);
